@@ -1,16 +1,22 @@
-name: Run Sigma-Dynamics (REAL, daily)
+name: Sigma-Dynamics (Real-Time Analysis)
 
 on:
-  workflow_dispatch: {}          # run by hand
   schedule:
-    - cron: "15 02 * * *"        # daily at 02:15 UTC (change if you want)
+    - cron: "0 2 * * *"   # Tous les jours à 02:00 UTC
+  workflow_dispatch:      # Lancer manuellement depuis l’onglet Actions
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sigma-dynamics
+  cancel-in-progress: false
 
 jobs:
-  simulate:
+  run:
     runs-on: ubuntu-latest
-    concurrency:
-      group: sigma-dynamics
-      cancel-in-progress: false
+    env:
+      MPLBACKEND: Agg   # Matplotlib hors-écran
 
     steps:
       - name: Checkout repository
@@ -19,32 +25,31 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt || true
-          pip install numpy pandas matplotlib yfinance requests
+          pip install requests pandas numpy matplotlib
 
-      - name: Compute date
-        id: dates
-        run: echo "today=$(date -u +%F)" >> $GITHUB_OUTPUT
+      - name: Compute output directory (date-based)
+        id: date
+        run: echo "OUT=artifacts/$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
-      - name: Run Sigma-Dynamics (REAL)
+      - name: Run Sigma–Dynamics (REAL)
         run: |
-          OUT="artifacts/${{ steps.dates.outputs.today }}"
-          mkdir -p "$OUT"
+          mkdir -p "${{ steps.date.outputs.OUT }}"
           python sigma_dynamics.py \
-            --symbol BTC-USD \
-            --lookback-days 5000 \
-            --out-dir "$OUT" \
-            --bridge-every 0 \
-            --human-plots
+            --symbol BTC \
+            --lookback-days 365 \
+            --bridge-every 50 \
+            --out-dir "${{ steps.date.outputs.OUT }}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sigma-dynamics-${{ steps.dates.outputs.today }}
-          path: artifacts/
-          retention-days: 30
+          name: sigma-dynamics-${{ github.run_id }}
+          path: |
+            ${{ steps.date.outputs.OUT }}/
+          if-no-files-found: error
+          retention-days: 14
