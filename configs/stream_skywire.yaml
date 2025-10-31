@@ -1,0 +1,37 @@
+adapter:
+  type: skywire
+  mode: http   # http | websocket | tail
+  endpoint: "http://localhost:9108/metrics"  # ou ws://… ou chemin de log
+  poll_seconds: 5
+  window_seconds: 60
+
+mapping:
+  harm_keys: ["packet_loss", "err_rate", "drops_rate"]     # noms de champs côté exporter
+  ineq_keys: ["bandwidth_gini", "throughput_ineq"]
+  vol_keys:  ["latency_jitter_ms", "throughput_variance"]
+  rec_keys:  ["recovery_score", "mttr_norm_inv"]           # 1 - mttr_norm
+
+context:
+  crisis_rules:
+    - key: "packet_loss"
+      op: ">"
+      value: 0.05
+    - key: "latency_jitter_ms"
+      op: ">"
+      value: 40
+  degraded_rules:
+    - key: "throughput_variance"
+      op: ">"
+      value: 0.15
+
+theta:
+  base: 0.60
+  ctx_boost:
+    normal: 0.00
+    degraded: -0.02
+    crisis: -0.05
+memory:
+  lambda: 0.08   # récence
+output:
+  outdir: "sigma_stream_artifacts"
+  run_tag: "skywire-live"
