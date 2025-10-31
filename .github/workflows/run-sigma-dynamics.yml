@@ -1,0 +1,45 @@
+name: Run Sigma-Dynamics
+
+on:
+  workflow_dispatch:
+    inputs:
+      steps:
+        description: "Number of timesteps"
+        default: "200"
+      use_bridge:
+        description: "Use public bridge (true/false)"
+        default: "true"
+      fetch_every:
+        description: "Fetch period (steps)"
+        default: "50"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Sigma-Dynamics
+        run: |
+          python sigma_dynamics.py \
+            --steps ${{ github.event.inputs.steps }} \
+            $([ "${{ github.event.inputs.use_bridge }}" = "true" ] && echo "" || echo "--no-bridge") \
+            --fetch-every ${{ github.event.inputs.fetch_every }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sigma-dynamics-artifacts
+          path: |
+            outputs/**
