@@ -1,31 +1,76 @@
-# Sigma-Dynamics (v0.1) — DeepKang-Labs
+# 🧠 Sigma-Dynamics (v0.1)
 
-**Experimental simulation engine for the Sigma-Lab Framework.**
+> Experimental simulation engine for the **Sigma-Lab Framework**, developed by **DeepKang-Labs**.  
+> Models adaptive moral coherence through the canonical loop:  
+> θ → C → M → θ
 
-Sigma-Dynamics implements the canonical loop of ethical coherence:
+---
+
+## ⚛️ Concept
+
+Sigma-Dynamics implements the **Theory of Algorithmic Moral Relativity**,  
+a system where ethics evolves dynamically under semantic and contextual pressure.
+
+### Canonical Equations
 
 \[
-\theta_i(t) = f_i(E_t, M_{t-1}), \quad M_t = \sum_k w_k C_k, \quad \overline{C}_t = \frac{1}{n}\sum_k C_k
+\theta_i(t) = f_i(E_t, M_{t-1})
+\]
+\[
+M_t = \sum_{k=1}^{n} w_k \cdot C_k
+\]
+\[
+\overline{C}_t = \frac{1}{n}\sum_{k=1}^{n} C_k
 \]
 
-### 🔬 Core Principles
-- Adaptive moral control through dynamic thresholds (`theta_i`)
-- Time-weighted moral memory (`M_t`)
-- Semantic environment reactivity (`E_t`)
-- Veto Guardrail: prevents coherence loss
-- Contextual modes: `normal`, `crisis`, `recovery`
+---
 
-### ⚙️ Run the simulation
+## ⚙️ Installation & Execution
+
 ```bash
 pip install -r requirements.txt
 python sigma_dynamics.py
 
-Results → /sigma_dynamics_artifacts_YYYYMMDD-HHMMSS/
-(contains plots + CSV logs for each simulation run)
+Artifacts (CSV + Plots) will be generated under:
 
-🧠 Vision
+/sigma_dynamics_artifacts_YYYYMMDD-HHMMSS/
 
-Sigma-Dynamics is part of the broader Sigma-Lab Framework,
-bridging conceptual ethics and computational implementation.
 
-> DeepKang-Labs (2025) — Axiom to Code.
+---
+
+🧩 Output Examples
+
+coherence_over_time.png
+
+theta_non_harm_over_time.png
+
+veto_over_time.png
+
+log.csv (complete record of simulation steps)
+
+
+
+---
+
+🌐 Project Context
+
+Sigma-Dynamics is part of the larger Sigma-Lab Framework ecosystem:
+
+Sigma-Lab-Framework → Theoretical & Mathematical Core
+
+Sigma-Dynamics → Simulation & Validation Engine
+
+
+
+---
+
+🧑‍💻 Contributors
+
+Yuri Kang — Architect of the Axiom-to-Code Paradigm
+
+IA Kang — Design & Engineering Logic
+
+DeepSeek, Gemini — Theoretical & Review Partners
+
+
+© 2025 DeepKang-Labs · Axiom to Code
