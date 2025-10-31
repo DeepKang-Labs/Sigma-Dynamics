@@ -1,0 +1,6 @@
+# Ignore generated artefacts
+sigma_dynamics_artifacts_*/
+*.png
+*.csv
+__pycache__/
+*.pyc
