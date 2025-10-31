@@ -1,0 +1,42 @@
+name: Run Sigma-Analysis
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'sigma_dynamics.csv'
+      - 'artifacts/sigma_dynamics.csv'
+      - 'data/sigma_dynamics.csv'
+      - 'sigma_analysis.py'
+      - '.github/workflows/run-sigma-analysis.yml'
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pandas numpy matplotlib
+
+      - name: Run analysis (auto-discover CSV)
+        run: |
+          python sigma_analysis.py
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sigma-analysis-artifacts
+          path: |
+            artifacts/**
+            reports/**
+          if-no-files-found: warn
