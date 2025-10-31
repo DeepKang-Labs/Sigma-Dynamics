@@ -1,0 +1,57 @@
+name: Sigma-Dynamics CI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "sigma_dynamics.py"
+      - "requirements.txt"
+      - ".github/workflows/sigma-dynamics-ci.yml"
+  workflow_dispatch: {}        # lancement manuel depuis l’onglet Actions
+  schedule:
+    - cron: "0 6 * * *"        # (optionnel) exécution quotidienne à 06:00 UTC
+
+jobs:
+  run-simulation:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run Sigma-Dynamics
+        run: |
+          python sigma_dynamics.py
+          echo "RUN_DIR=$(ls -d sigma_dynamics_artifacts_* | tail -n 1)" >> $GITHUB_ENV
+
+      - name: Upload artifacts (plots + CSV + config)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sigma-dynamics-artifacts
+          path: ${{ env.RUN_DIR }}
+          if-no-files-found: error
+
+      # (Optionnel) publier une release automatique avec les artefacts
+      # - name: Zip results
+      #   run: |
+      #     zip -r sigma-dynamics-results.zip "${{ env.RUN_DIR }}"
+      #
+      # - name: Create GitHub Release
+      #   uses: softprops/action-gh-release@v2
+      #   with:
+      #     tag_name: "run-${{ github.run_id }}"
+      #     name: "Sigma-Dynamics run ${{ github.run_id }}"
+      #     body: "Automated run of Sigma-Dynamics CI."
+      #     files: sigma-dynamics-results.zip
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
