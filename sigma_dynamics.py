@@ -1,250 +1,236 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Sigma-Dynamics (v0.1) — DeepKang-Labs
--------------------------------------
-Experimental simulation engine for the Sigma-Lab Framework.
+Sigma-Dynamics — Canonical Adaptive Moral Control (with integrated Bridge)
+DeepKang-Labs (2025) — Axiom-to-Code
 
-Implements the canonical ethical control loop:
+Implements the closed loop:
     θ_i(t) = f_i(E_t, M_{t-1})
-    M_t    = Σ_k w_k * C_k
+    M_t    = Σ_k w_k · C_k
     C̄_t   = (1/n) Σ_k C_k
 
-Core Principles:
-- Adaptive moral thresholds (θ_i)
-- Weighted moral memory (M_t)
-- Contextual feedback from environment (E_t)
-- Veto Guardrail: prevents coherence degradation
-- Contextual modes: normal / crisis / recovery
+Where C_k = (non_harm, equity, stability, resilience)
 
-Usage:
-    pip install numpy matplotlib
-    python sigma_dynamics.py
-
-Artifacts (CSV + PNG plots) will be created under:
-    ./sigma_dynamics_artifacts_YYYYMMDD-HHMMSS/
+This script fetches real-world public network-like metrics (bridge) and
+falls back to safe simulation if unavailable. It saves:
+  - outputs/sigma_dynamics.csv
+  - outputs/skywire_metrics.csv (from bridge)
+  - outputs/*.png (plots)
 """
 
 from __future__ import annotations
-import math
-import json
-import random
-from dataclasses import dataclass, asdict
-from typing import Dict, List
-from pathlib import Path
+import os, math, csv, argparse, time, random
 from datetime import datetime
+from typing import Dict, List, Tuple
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
-# -------------------------
-# Configuration & Defaults
-# -------------------------
-DEFAULT_STEPS = 200
-DEFAULT_LAMBDA = 0.08  # moral memory persistence
-RNG_SEED = 42
+# -------- Bridge (public metrics) ------------------------------------------------
+# Robust to failures; keeps the run offline-capable.
+import json
+import requests
 
-AXIOMS = ["non_harm", "equity", "stability", "resilience"]
-CONTEXT_MODES = ["normal", "crisis", "recovery"]
+def fetch_public_metrics() -> Dict[str, float] | None:
+    """
+    Pulls public indicators to mimic decentralized-network ‘health’.
+    Fails gracefully if internet disabled/unreachable.
+    Returns dict with keys: latency, throughput, stability
+    """
+    try:
+        # Two lightweight public endpoints (no key):
+        btc = requests.get("https://api.blockchair.com/bitcoin/stats", timeout=10).json()
+        glob = requests.get("https://api.coinlore.net/api/global/", timeout=10).json()
 
-@dataclass
-class SimConfig:
-    steps: int = DEFAULT_STEPS
-    lam: float = DEFAULT_LAMBDA
-    alpha: Dict[str, float] = None
-    beta: Dict[str, float] = None
-    gamma: Dict[str, float] = None
-    context_weights: Dict[str, Dict[str, float]] = None
-    veto_tolerance: float = 1e-6
-    context_switch_prob: float = 0.1
-    noise_scale: float = 0.03
+        # Heuristics to derive proxy signals (bounded [0,1] after scaling)
+        # blocks_24h ~144 when normal => latency proxy = 144/blocks_24h (capped)
+        blocks_24h = max(1.0, float(btc["data"].get("blocks_24h", 144)))
+        latency_raw = min(2.0, 144.0 / blocks_24h)           # 1.0 ≈ nominal, >1 worse
+        latency = float(np.clip(1.0 / latency_raw, 0.0, 1.0)) # higher is better (lower real latency)
 
-    def __post_init__(self):
-        if self.alpha is None:
-            self.alpha = {k: 0.50 for k in AXIOMS}
-        if self.beta is None:
-            self.beta = {k: 0.40 for k in AXIOMS}
-        if self.gamma is None:
-            self.gamma = {k: 0.15 for k in AXIOMS}
-        if self.context_weights is None:
-            self.context_weights = {
-                "normal":   {"non_harm": 0.30, "equity": 0.30, "stability": 0.20, "resilience": 0.20},
-                "crisis":   {"non_harm": 0.15, "equity": 0.15, "stability": 0.35, "resilience": 0.35},
-                "recovery": {"non_harm": 0.25, "equity": 0.30, "stability": 0.25, "resilience": 0.20},
-            }
+        coins_count = float(glob[0].get("coins_count", 8000.0))
+        throughput = float(np.clip(coins_count / 20000.0, 0.0, 1.0))  # crude density proxy
+        stability = float(np.clip(1.0 - (1.0 / (1.0 + math.exp(-2.0 * throughput))), 0.0, 1.0))
 
-@dataclass
-class State:
-    t: int
-    context: str
-    C_k: Dict[str, float]
-    M_t: Dict[str, float]
-    theta: Dict[str, float]
-    coherence: float
-    veto_triggered: bool
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "latency": round(latency, 4),
+            "throughput": round(throughput, 4),
+            "stability": round(stability, 4),
+        }
+    except Exception:
+        return None
 
-def bounded(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
-    return float(max(lo, min(hi, x)))
+# -------- Sigma-Dynamics core ----------------------------------------------------
 
-def normalize_weights(d: Dict[str, float]) -> Dict[str, float]:
-    s = sum(d.values())
-    if s <= 0:
-        n = len(d)
-        return {k: 1.0/n for k in d}
-    return {k: v/s for k, v in d.items()}
+RNG = np.random.default_rng(42)
 
-def measure_context(mode: str, noise_scale: float = 0.02) -> Dict[str, float]:
-    base = {
-        "normal":   {"non_harm": 0.80, "equity": 0.75, "stability": 0.70, "resilience": 0.70},
-        "crisis":   {"non_harm": 0.55, "equity": 0.55, "stability": 0.40, "resilience": 0.45},
-        "recovery": {"non_harm": 0.70, "equity": 0.72, "stability": 0.60, "resilience": 0.75},
-    }[mode]
-    out = {}
-    for k, v in base.items():
-        noise = np.random.normal(0.0, noise_scale)
-        out[k] = bounded(v + noise, 0.0, 1.0)
+def sigmoid(x: np.ndarray | float) -> np.ndarray | float:
+    return 1.0 / (1.0 + np.exp(-x))
+
+def make_outputs_dir() -> str:
+    out = "outputs"
+    os.makedirs(out, exist_ok=True)
     return out
 
-def compute_weights(history_len: int, lam: float) -> np.ndarray:
-    if history_len == 0:
-        return np.array([])
-    t = history_len - 1
-    w = []
-    for k in range(history_len):
-        dt = t - k
-        w_k = 1.0 / (1.0 + math.exp(-lam * dt))
-        w.append(w_k)
-    w = np.array(w, dtype=float)
-    w /= w.sum()
-    return w
+def comprehension_from_metrics(m: Dict[str, float], context: str) -> np.ndarray:
+    """
+    Map raw bridge metrics → C_k components in [0,1].
+    non_harm    ↑ with stability, and with low latency
+    equity      proxy from ‘throughput evenness’ (bounded transform)
+    stability   directly from bridge
+    resilience  from stability & latency smoothness (simple transform)
+    """
+    lat  = float(np.clip(m.get("latency", 0.7), 0.0, 1.0))
+    thr  = float(np.clip(m.get("throughput", 0.5), 0.0, 1.0))
+    stab = float(np.clip(m.get("stability", 0.6), 0.0, 1.0))
 
-def aggregate_memory(C_history: List[Dict[str, float]], lam: float) -> Dict[str, float]:
-    n = len(C_history)
-    if n == 0:
-        return {k: 0.0 for k in AXIOMS}
-    w = compute_weights(n, lam)
-    M = {k: 0.0 for k in AXIOMS}
-    for idx, Ck in enumerate(C_history):
-        for key in AXIOMS:
-            M[key] += w[idx] * Ck[key]
-    return M
+    non_harm = float(np.clip(0.5 * stab + 0.5 * lat, 0.0, 1.0))
+    equity   = float(np.clip(1.0 - abs(thr - 0.5) * 2.0, 0.0, 1.0))   # best when ~0.5 (balanced)
+    stability= stab
+    resilience = float(np.clip(0.6 * stab + 0.4 * lat, 0.0, 1.0))
 
-def f_i(E_t: Dict[str, float], M_prev: Dict[str, float],
-        alpha: Dict[str, float], beta: Dict[str, float], gamma: Dict[str, float]) -> Dict[str, float]:
-    theta = {}
-    for key in AXIOMS:
-        e = E_t[key]; m = M_prev[key]
-        val = alpha[key]*e + beta[key]*m + gamma[key]*(e*m)
-        theta[key] = bounded(val, 0.0, 1.0)
+    C = np.array([non_harm, equity, stability, resilience], dtype=float)
+
+    # Contextual nudges (crisis lowers non_harm/stability a bit; recovery boosts resilience)
+    if context == "crisis":
+        C[0] = float(np.clip(C[0] - 0.08, 0.0, 1.0))
+        C[2] = float(np.clip(C[2] - 0.06, 0.0, 1.0))
+    elif context == "recovery":
+        C[3] = float(np.clip(C[3] + 0.08, 0.0, 1.0))
+
+    return C
+
+def f_i(E_t: str, M_prev: np.ndarray, lam: float = 0.15) -> np.ndarray:
+    """
+    Threshold update function.
+    θ(t) = clip( M_prev ⊙ γ(context) + λ*1, [0,1] ) where γ reweights dims by context.
+    """
+    gamma = np.ones(4, dtype=float)
+    if E_t == "crisis":
+        gamma = np.array([1.10, 1.05, 1.15, 1.12])  # tighten non_harm/stability/resilience
+    elif E_t == "recovery":
+        gamma = np.array([1.00, 1.02, 1.00, 1.08])  # focus resilience slightly
+
+    theta = np.clip(M_prev * gamma + lam * 0.1, 0.0, 1.0)
     return theta
 
-def coherence_metric(theta: Dict[str, float]) -> float:
-    vals = np.array([theta[k] for k in AXIOMS], dtype=float)
-    mean = float(vals.mean())
-    var  = float(vals.var())
-    balance = bounded(1.0 - var, 0.0, 1.0)
-    cost = 0.9
-    phi = (mean * balance) / cost
-    return float(phi)
+def veto_guardrail(C: np.ndarray, theta: np.ndarray, eps: float = 1e-6) -> bool:
+    """Veto triggers if any component falls below its threshold by a margin."""
+    gaps = theta - C
+    return bool(np.any(gaps > eps))
 
-def simulate(config: SimConfig, seed: int = RNG_SEED) -> Dict[str, object]:
-    random.seed(seed)
-    np.random.seed(seed)
+def run_sigma_dynamics(steps: int = 200, use_bridge: bool = True, fetch_every: int = 50) -> Dict[str, str]:
+    outdir = make_outputs_dir()
 
-    context = "normal"
-    C_history: List[Dict[str, float]] = []
-    M_prev = {k: 0.5 for k in AXIOMS}
-    theta_prev = {k: 0.5 for k in AXIOMS}
-    coherence_prev = coherence_metric(theta_prev)
+    # State
+    dims = ["non_harm", "equity", "stability", "resilience"]
+    M = np.array([0.70, 0.68, 0.66, 0.59], dtype=float)  # moral memory init
+    theta = np.array([0.60, 0.60, 0.60, 0.58], dtype=float)
 
-    log: List[State] = []
+    records: List[Dict[str, float | str | int]] = []
+    last_metrics = {"latency": 0.7, "throughput": 0.5, "stability": 0.6}
+    bridge_csv = os.path.join(outdir, "skywire_metrics.csv")
 
-    for t in range(config.steps):
-        if random.random() < config.context_switch_prob:
-            context = random.choice(CONTEXT_MODES)
+    # Prepare bridge CSV (appendable)
+    if use_bridge and not os.path.exists(bridge_csv):
+        with open(bridge_csv, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["timestamp", "latency", "throughput", "stability"])
+            writer.writeheader()
 
-        C_k = measure_context(context, noise_scale=config.noise_scale)
-        cw = normalize_weights(config.context_weights[context])
-        C_k_weighted = {k: bounded(C_k[k] * (0.8 + 0.4*cw[k])) for k in AXIOMS}
+    for t in range(steps):
+        # Context schedule
+        if t % 90 in (0, 1, 2, 3, 4, 5):   context = "crisis"
+        elif t % 90 in range(6, 15):       context = "recovery"
+        else:                               context = "normal"
 
-        C_history.append(C_k_weighted)
-        M_t = aggregate_memory(C_history, config.lam)
-        theta_t = f_i(C_k_weighted, M_prev, config.alpha, config.beta, config.gamma)
+        # Fetch bridge metrics periodically
+        if use_bridge and (t % fetch_every == 0):
+            data = fetch_public_metrics()
+            if data:
+                last_metrics = {k: data[k] for k in ("latency","throughput","stability")}
+                # append to bridge csv
+                with open(bridge_csv, "a", newline="") as f:
+                    writer = csv.DictWriter(f, fieldnames=["timestamp","latency","throughput","stability"])
+                    writer.writerow(data)
 
-        coherence_now = coherence_metric(theta_t)
-        d_coh = coherence_now - coherence_prev
-        veto = (d_coh < -config.veto_tolerance)
+        # Build comprehension vector from latest metrics (or fallback)
+        C = comprehension_from_metrics(last_metrics, context)
 
-        if veto:
-            theta_eff = theta_prev.copy()
-            coherence_eff = coherence_prev
-        else:
-            theta_eff = theta_t
-            coherence_eff = coherence_now
+        # Weighted moral memory update: logistic recency weights
+        # recent samples matter more; here we approximate with EMA
+        alpha = 0.2
+        M = (1 - alpha) * M + alpha * C
 
-        log.append(State(
-            t=t, context=context, C_k=C_k_weighted, M_t=M_t,
-            theta=theta_eff, coherence=coherence_eff, veto_triggered=bool(veto)
-        ))
+        # Thresholds from f_i
+        theta = f_i(context, M, lam=0.15)
 
-        M_prev = M_t
-        theta_prev = theta_eff
-        coherence_prev = coherence_eff
+        # Veto
+        veto = veto_guardrail(C, theta, eps=1e-3)
 
-    return {"config": asdict(config), "log": log}
+        rec = {
+            "t": t,
+            "context": context,
+            **{f"C_{d}": float(C[i]) for i, d in enumerate(dims)},
+            **{f"M_{d}": float(M[i]) for i, d in enumerate(dims)},
+            **{f"theta_{d}": float(theta[i]) for i, d in enumerate(dims)},
+            "coherence": float(np.mean(C >= theta)),
+            "veto": int(veto),
+        }
+        records.append(rec)
 
-def export_csv(sim_result: Dict[str, object], out_csv: Path) -> None:
-    import csv
-    log: List[State] = sim_result["log"]
-    with out_csv.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        header = ["t","context",
-                  *[f"C_{k}" for k in AXIOMS],
-                  *[f"M_{k}" for k in AXIOMS],
-                  *[f"theta_{k}" for k in AXIOMS],
-                  "coherence","veto"]
-        writer.writerow(header)
-        for s in log:
-            row = [s.t, s.context,
-                   *[s.C_k[k] for k in AXIOMS],
-                   *[s.M_t[k] for k in AXIOMS],
-                   *[s.theta[k] for k in AXIOMS],
-                   s.coherence, int(s.veto_triggered)]
-            writer.writerow(row)
+        # Small stochasticity so plots aren’t perfectly flat
+        last_metrics["throughput"] = float(np.clip(last_metrics["throughput"] + RNG.normal(0, 0.01), 0.0, 1.0))
+        last_metrics["latency"]    = float(np.clip(last_metrics["latency"]    + RNG.normal(0, 0.008), 0.0, 1.0))
 
-def plot_series(sim_result: Dict[str, object], out_png_dir: Path) -> None:
-    log: List[State] = sim_result["log"]
-    t = [s.t for s in log]
+    # Save CSV
+    df = pd.DataFrame.from_records(records)
+    csv_path = os.path.join(outdir, "sigma_dynamics.csv")
+    df.to_csv(csv_path, index=False)
 
-    plt.figure(figsize=(10,5))
-    plt.plot(t, [s.coherence for s in log])
-    plt.xlabel("t"); plt.ylabel("coherence"); plt.title("Sigma-Dynamics: Coherence Over Time")
-    plt.tight_layout(); plt.savefig(out_png_dir / "coherence_over_time.png"); plt.close()
+    # Plots
+    def save_plot(series: pd.Series, title: str, fname: str):
+        plt.figure(figsize=(8,3))
+        plt.plot(df["t"], series)
+        plt.title(title)
+        plt.xlabel("t")
+        plt.tight_layout()
+        path = os.path.join(outdir, fname)
+        plt.savefig(path, dpi=160)
+        plt.close()
+        return path
 
-    for key in AXIOMS:
-        plt.figure(figsize=(10,5))
-        plt.plot(t, [s.theta[key] for s in log])
-        plt.xlabel("t"); plt.ylabel(f"theta_{key}"); plt.title(f"Sigma-Dynamics: theta_{key} Over Time")
-        plt.tight_layout(); plt.savefig(out_png_dir / f"theta_{key}_over_time.png"); plt.close()
+    art_paths = []
+    art_paths.append(save_plot(df["coherence"], "Sigma-Dynamics: Coherence Over Time", "coherence.png"))
+    for d in dims:
+        art_paths.append(save_plot(df[f"theta_{d}"], f"Sigma-Dynamics: theta_{d} Over Time", f"theta_{d}.png"))
+    art_paths.append(save_plot(df["veto"], "Sigma-Dynamics: Veto Triggered (1=yes)", "veto.png"))
 
-    plt.figure(figsize=(10,3))
-    veto_series = [1 if s.veto_triggered else 0 for s in log]
-    plt.step(t, veto_series, where="post")
-    plt.xlabel("t"); plt.ylabel("veto"); plt.title("Sigma-Dynamics: Veto Triggered (1=yes)")
-    plt.tight_layout(); plt.savefig(out_png_dir / "veto_over_time.png"); plt.close()
+    return {
+        "csv": csv_path,
+        "bridge_csv": bridge_csv if use_bridge else "",
+        "plots": ", ".join(art_paths),
+        "note": "Artifacts saved in outputs/"
+    }
+
+# -------- CLI -------------------------------------------------------------------
 
 def main():
-    cfg = SimConfig()
-    result = simulate(cfg, seed=RNG_SEED)
+    p = argparse.ArgumentParser(description="Run Sigma-Dynamics with integrated Bridge")
+    p.add_argument("--steps", type=int, default=200, help="number of timesteps")
+    p.add_argument("--no-bridge", action="store_true", help="disable public metrics bridge")
+    p.add_argument("--fetch-every", type=int, default=50, help="bridge fetch period in steps")
+    args = p.parse_args()
 
-    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    out_dir = Path(f"./sigma_dynamics_artifacts_{ts}")
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    (out_dir / "config.json").write_text(json.dumps(result["config"], indent=2), encoding="utf-8")
-    export_csv(result, out_dir / "log.csv")
-    plot_series(result, out_dir)
-    print("Artifacts written to:", str(out_dir.resolve()))
+    result = run_sigma_dynamics(
+        steps=args.steps,
+        use_bridge=not args.no_bridge,
+        fetch_every=args.fetch_every,
+    )
+    print("\n=== Run complete ===")
+    for k, v in result.items():
+        print(f"{k}: {v}")
 
 if __name__ == "__main__":
     main()
