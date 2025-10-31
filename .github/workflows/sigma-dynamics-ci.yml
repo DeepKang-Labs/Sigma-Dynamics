@@ -7,17 +7,24 @@ on:
       - "sigma_dynamics.py"
       - "requirements.txt"
       - ".github/workflows/sigma-dynamics-ci.yml"
-  workflow_dispatch: {}        # lancement manuel depuis l’onglet Actions
-  schedule:
-    - cron: "0 6 * * *"        # (optionnel) exécution quotidienne à 06:00 UTC
+  workflow_dispatch: {}
+  # schedule:
+  #   - cron: "0 6 * * *"
 
 jobs:
   run-simulation:
     runs-on: ubuntu-latest
+    env:
+      MPLBACKEND: Agg   # backend Matplotlib headless
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Show repo tree (pre)
+        run: |
+          pwd
+          ls -la
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -31,27 +38,18 @@ jobs:
 
       - name: Run Sigma-Dynamics
         run: |
-          python sigma_dynamics.py
-          echo "RUN_DIR=$(ls -d sigma_dynamics_artifacts_* | tail -n 1)" >> $GITHUB_ENV
+          python sigma_dynamics.py || { echo "Simulation failed"; exit 1; }
+          echo "Listing after run:"
+          ls -la
+          echo "Find artifacts dirs:"
+          shopt -s nullglob
+          for d in sigma_dynamics_artifacts_*; do echo "::notice title=ArtifactDir::$d"; done
+          echo "DONE"
 
       - name: Upload artifacts (plots + CSV + config)
         uses: actions/upload-artifact@v4
         with:
           name: sigma-dynamics-artifacts
-          path: ${{ env.RUN_DIR }}
+          path: |
+            sigma_dynamics_artifacts_*/**
           if-no-files-found: error
-
-      # (Optionnel) publier une release automatique avec les artefacts
-      # - name: Zip results
-      #   run: |
-      #     zip -r sigma-dynamics-results.zip "${{ env.RUN_DIR }}"
-      #
-      # - name: Create GitHub Release
-      #   uses: softprops/action-gh-release@v2
-      #   with:
-      #     tag_name: "run-${{ github.run_id }}"
-      #     name: "Sigma-Dynamics run ${{ github.run_id }}"
-      #     body: "Automated run of Sigma-Dynamics CI."
-      #     files: sigma-dynamics-results.zip
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
