@@ -1,42 +1,50 @@
-name: Run Sigma-Dynamics (REAL)
+name: Run Sigma-Dynamics (REAL, daily)
 
 on:
-  workflow_dispatch:  # Lancement manuel depuis l'onglet "Actions"
+  workflow_dispatch: {}          # run by hand
+  schedule:
+    - cron: "15 02 * * *"        # daily at 02:15 UTC (change if you want)
 
 jobs:
   simulate:
     runs-on: ubuntu-latest
+    concurrency:
+      group: sigma-dynamics
+      cancel-in-progress: false
+
     steps:
-      # Étape 1 : Récupération du code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Étape 2 : Configuration de Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      # Étape 3 : Installation des dépendances
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt || echo "Pas de requirements.txt trouvé, installation des libs essentielles..."
+          pip install -r requirements.txt || true
           pip install numpy pandas matplotlib yfinance requests
 
-      # Étape 4 : Exécution principale (réelle)
+      - name: Compute date
+        id: dates
+        run: echo "today=$(date -u +%F)" >> $GITHUB_OUTPUT
+
       - name: Run Sigma-Dynamics (REAL)
         run: |
-          mkdir -p artifacts
+          OUT="artifacts/${{ steps.dates.outputs.today }}"
+          mkdir -p "$OUT"
           python sigma_dynamics.py \
             --symbol BTC-USD \
-            --lookback-days 200 \
-            --out-dir artifacts \
-            --bridge-every 0
+            --lookback-days 5000 \
+            --out-dir "$OUT" \
+            --bridge-every 0 \
+            --human-plots
 
-      # Étape 5 : Téléversement automatique des artefacts
-      - name: Upload REAL artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sigma-dynamics-artifacts
+          name: sigma-dynamics-${{ steps.dates.outputs.today }}
           path: artifacts/
+          retention-days: 30
