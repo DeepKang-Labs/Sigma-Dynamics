@@ -64,13 +64,13 @@ jobs:
             -o list.json
 
           echo "Analyse JSON via Python..."
-          python3 <<'PYCODE'
+          python3 - <<'PYCODE'
 import json, sys
 with open("list.json","r",encoding="utf-8") as f:
-    data = json.load(f)
-arts = [a for a in data.get("artifacts", [])
-        if not a.get("expired")
-        and a.get("name","").startswith("sigma-dynamics-")]
+    data=json.load(f)
+arts=[a for a in data.get("artifacts",[])
+      if not a.get("expired")
+      and a.get("name","").startswith("sigma-dynamics-")]
 arts.sort(key=lambda a: a.get("created_at",""), reverse=True)
 if not arts:
     print("::error::Aucun artefact 'sigma-dynamics-' valide trouvé. Lance d'abord le workflow Dynamics.")
