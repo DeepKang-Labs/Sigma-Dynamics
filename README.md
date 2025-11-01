@@ -6,6 +6,12 @@
 
 ---
 
+## Boucle d’influence Sigma
+
+![Boucle d’influence Sigma](docs/img/sigma_influence_flow.png)
+
+> Visuel auto-généré par `.github/workflows/export-visual.yml`.
+
 ## ⚛️ Concept
 
 Sigma-Dynamics implements the **Theory of Algorithmic Moral Relativity**,  
