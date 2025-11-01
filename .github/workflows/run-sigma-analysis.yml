@@ -53,8 +53,8 @@ jobs:
                -H "Accept: application/vnd.github+json" \
                "${{ steps.src.outputs.URL }}" > dl/list.json
 
-          # Extract ZIP URL from JSON using Python inline
-          ZIP_URL=$(python3 - <<'PYCODE'
+          # Extraction du lien ZIP via un script Python inline
+          ZIP_URL=$(python3 <<'PYCODE'
 import json, sys
 data=json.load(open("dl/list.json"))
 for a in data.get("artifacts", []):
