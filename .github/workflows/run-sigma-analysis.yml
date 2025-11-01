@@ -54,19 +54,19 @@ jobs:
         run: |
           owner="${GITHUB_REPOSITORY%/*}"
           repo="${GITHUB_REPOSITORY#*/}"
-          # Liste des artefacts (50 derniers)
+          echo "Recherche du dernier artefact valide..."
           json=$(curl -sSfL -H "Authorization: Bearer $GH_TOKEN" \
                 -H "Accept: application/vnd.github+json" \
                 "https://api.github.com/repos/$owner/$repo/actions/artifacts?per_page=50")
-          # Prend le plus récent non-expiré qui commence par 'sigma-dynamics-'
-          url=$(echo "$json" | python - <<'PY'
+          url=$(python3 - <<'PYCODE'
 import sys, json
-j=json.load(sys.stdin)
-arts=[a for a in j.get("artifacts",[]) if not a.get("expired") and a.get("name","").startswith("sigma-dynamics-")]
+data=json.load(sys.stdin)
+arts=[a for a in data.get("artifacts",[]) if not a.get("expired") and a.get("name","").startswith("sigma-dynamics-")]
 arts.sort(key=lambda a: a.get("created_at",""), reverse=True)
 print(arts[0]["archive_download_url"] if arts else "")
-PY
-)
+PYCODE
+          <<< "$json")
+
           if [ -z "$url" ]; then
             echo "::error::Aucun artefact 'sigma-dynamics-' valide trouvé. Lance d'abord le workflow Dynamics."
             exit 1
@@ -80,6 +80,7 @@ PY
         run: |
           url="${{ steps.src.outputs.URL || steps.auto.outputs.URL }}"
           mkdir -p dl
+          echo "Téléchargement de l’artefact depuis : $url"
           curl -sSfL -H "Authorization: Bearer $GH_TOKEN" -o dl/a.zip "$url"
           unzip -oq dl/a.zip -d dl/unzipped
           echo "ZIP_DIR=dl/unzipped" >> "$GITHUB_OUTPUT"
@@ -88,7 +89,7 @@ PY
         id: csv
         run: |
           mkdir -p "${{ steps.date.outputs.OUT }}"
-          CSV=$(ls -1 "${{ steps.dl.outputs.ZIP_DIR }}"/**/sigma_dynamics.csv 2>/dev/null | head -n1 || true)
+          CSV=$(find "${{ steps.dl.outputs.ZIP_DIR }}" -type f -name "sigma_dynamics.csv" | head -n1 || true)
           if [ -z "$CSV" ]; then
             echo "::error::sigma_dynamics.csv introuvable. Assure-toi que le workflow Dynamics a bien uploadé 'sigma_dynamics.csv'."
             exit 1
@@ -103,7 +104,7 @@ PY
           python sigma_analysis.py \
             --csv "${{ steps.csv.outputs.CSV }}" \
             --out-dir "${{ steps.date.outputs.OUT }}"
-          echo "Contenu OUT :"
+          echo "Contenu du dossier de sortie :"
           ls -lah "${{ steps.date.outputs.OUT }}"
 
       - name: Upload analysis artifacts
