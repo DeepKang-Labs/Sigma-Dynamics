@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* --- Thème Sigma-Lab Global --- */
+body {
+  @apply bg-sigma-black text-white font-sigma;
+}
+
+h1, h2 {
+  @apply text-sigma-cyan drop-shadow-[0_0_8px_rgba(0,255,255,0.8)];
+}
+
+.card {
+  @apply bg-sigma-gradient shadow-sigma-glow rounded-2xl p-6 text-white;
+}
