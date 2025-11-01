@@ -5,14 +5,16 @@ on:
   push:
     paths:
       - "app/visuals/**"
+      - "scripts/capture_visual.js"
+      - ".github/workflows/export-visual.yml"
       - "package.json"
-      - "package-lock.json"
       - "pnpm-lock.yaml"
       - "yarn.lock"
 
 jobs:
   build-and-capture:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,11 +22,14 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: "20"  # pas de cache => pas besoin de lock file
 
       - name: Install deps
-        run: npm ci
+        run: |
+          npm install
+          # Sécurité : si puppeteer/wait-on ne sont pas dans le package.json, on les ajoute pour la CI
+          npm ls puppeteer >/dev/null 2>&1 || npm i -D puppeteer
+          npm ls wait-on  >/dev/null 2>&1 || npm i -D wait-on
 
       - name: Build
         run: npm run build
@@ -36,6 +41,8 @@ jobs:
 
       - name: Capture PNG with Puppeteer
         run: node scripts/capture_visual.js
+        env:
+          CAPTURE_URL: http://localhost:3000/visuals
 
       - name: Commit image
         uses: EndBug/add-and-commit@v9
