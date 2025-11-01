@@ -32,24 +32,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests pandas numpy matplotlib
 
+      # (Optionnel) horodatage pour logs
       - name: Compute output directory (date-based)
         id: date
         run: echo "OUT=artifacts/$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
       - name: Run Sigma–Dynamics (REAL)
         run: |
-          mkdir -p "${{ steps.date.outputs.OUT }}"
-          python sigma_dynamics.py \
-            --symbol BTC \
-            --lookback-days 365 \
-            --bridge-every 50 \
-            --out-dir "${{ steps.date.outputs.OUT }}"
+          # Le script écrit déjà dans ./outputs/
+          python sigma_dynamics.py --steps 200 --fetch-every 50
+          echo "Contenu de outputs/"
+          ls -lah outputs || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sigma-dynamics-${{ github.run_id }}
           path: |
-            ${{ steps.date.outputs.OUT }}/
+            outputs/**        # <-- CORRECTION: on uploade le vrai dossier de sortie
           if-no-files-found: error
           retention-days: 14
