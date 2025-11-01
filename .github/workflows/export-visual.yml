@@ -1,17 +1,16 @@
 name: Export Sigma Visual
 
 on:
-  workflow_dispatch: {}          # lancement manuel
+  workflow_dispatch: {}
   push:
-    branches: [ main ]           # déclenche à chaque commit sur main
+    branches: [ main ]
 
 permissions:
-  contents: write                # nécessaire pour committer l'image générée
+  contents: write
 
 jobs:
   build-and-capture:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,12 +18,11 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: '20'
 
       - name: Install deps
         run: |
           npm install
-          # Sécurités: installe ces paquets si absents du package.json
           npm ls puppeteer >/dev/null 2>&1 || npm i -D puppeteer
           npm ls wait-on  >/dev/null 2>&1 || npm i -D wait-on
 
@@ -37,7 +35,6 @@ jobs:
           npx wait-on http://localhost:4173
 
       - name: Capture PNG with Puppeteer
-        # Si ton script est CommonJS renomme la commande en .cjs
         run: node scripts/capture_visual.js
         env:
           CAPTURE_URL: http://localhost:4173
