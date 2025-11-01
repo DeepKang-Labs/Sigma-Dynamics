@@ -1,6 +1,42 @@
-# Ignore generated artefacts
-sigma_dynamics_artifacts_*/
+# Node / package managers
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build / cache
+dist/
+build/
+.vite/
+.cache/
+.eslintcache
+*.tsbuildinfo
+
+# Env / misc
+.env
+.env.*
+.DS_Store
+
+# Coverage / test
+coverage/
+*.coverage.*
+*.lcov
+
+# Screens / artifacts (génériques)
 *.png
-*.csv
-__pycache__/
-*.pyc
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.svg
+
+# --- Exceptions explicites ---
+# Garde le dossier d’images du README et le visuel Sigma
+!docs/
+!docs/img/
+!docs/img/.gitkeep
+!docs/img/sigma_influence_flow.png
