@@ -1,16 +1,22 @@
 name: Run Sigma-Analysis
 
 on:
+  # Auto when a Dynamics run completes
   workflow_run:
     workflows: ["Run Sigma-Dynamics (REAL)"]
     types: [completed]
 
+  # Manual run (optional): you may leave artifact_url empty
   workflow_dispatch:
     inputs:
       artifact_url:
-        description: "URL API artifacts d'un run Dynamics (optionnel)"
+        description: "Artifacts API URL from a Dynamics run (optional)"
         required: false
         default: ""
+
+permissions:
+  contents: read
+  actions: read
 
 jobs:
   analyze:
@@ -34,39 +40,63 @@ jobs:
 
       - name: Compute OUT dir
         id: date
-        run: echo "OUT=artifacts/$(date -u +%F)" >> $GITHUB_OUTPUT
+        run: echo "OUT=artifacts/$(date -u +%F)" >> "$GITHUB_OUTPUT"
 
-      - name: Determine artifacts URL
+      - name: Determine artifacts URL (event or input)
         id: src
         run: |
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "URL=${{ github.event.workflow_run.artifacts_url }}" >> $GITHUB_OUTPUT
+            echo "URL=${{ github.event.workflow_run.artifacts_url }}" >> "$GITHUB_OUTPUT"
           elif [ -n "${{ github.event.inputs.artifact_url }}" ]; then
-            echo "URL=${{ github.event.inputs.artifact_url }}" >> $GITHUB_OUTPUT
+            echo "URL=${{ github.event.inputs.artifact_url }}" >> "$GITHUB_OUTPUT"
           else
-            echo "URL=" >> $GITHUB_OUTPUT
+            echo "URL=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Download artifact from triggering run
-        if: steps.src.outputs.URL != ''
+      - name: If URL empty, find latest SUCCESS Dynamics run automatically
+        if: steps.src.outputs.URL == ''
+        id: auto
+        env:
+          REPO: ${{ github.repository }}
         run: |
           mkdir -p dl
-          curl -sSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-               -H "Accept: application/vnd.github+json" \
-               "${{ steps.src.outputs.URL }}" > dl/list.json
+          # Query latest successful runs of the Dynamics workflow file
+          curl -sSL \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/actions/workflows/run-sigma-dynamics.yml/runs?status=success&per_page=1" \
+            > dl/runs.json
 
-          # Récupère la première URL d'artefact non expirée via jq (évite les heredocs YAML)
+          ART_URL=$(jq -r '.workflow_runs[0].artifacts_url // empty' dl/runs.json)
+          if [ -z "$ART_URL" ]; then
+            echo "::error::Aucun run Dynamics réussi trouvé. Lance d'abord 'Run Sigma-Dynamics (REAL)'."
+            exit 1
+          fi
+          echo "URL=$ART_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Download artifact list (JSON)
+        id: dlist
+        env:
+          URL: ${{ steps.src.outputs.URL || steps.auto.outputs.URL }}
+        run: |
+          mkdir -p dl
+          curl -sSL \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "$URL" > dl/list.json
+          echo "Saved: dl/list.json"
+
+      - name: Download & unzip the first non-expired artifact
+        id: grab
+        run: |
           ZIP_URL=$(jq -r '.artifacts[] | select(.expired==false) | .archive_download_url' dl/list.json | head -n1)
-
           if [ -z "$ZIP_URL" ] || [ "$ZIP_URL" = "null" ]; then
-            echo "::error::Aucun artefact disponible/valide sur le run source."
+            echo "::error::Aucun artefact valide dans la liste."
             cat dl/list.json
             exit 1
           fi
-
-          echo "Téléchargement de l'artefact: $ZIP_URL"
-          curl -sSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-               -o dl/a.zip "$ZIP_URL"
+          echo "Downloading $ZIP_URL"
+          curl -sSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -o dl/a.zip "$ZIP_URL"
           mkdir -p dl/unzipped
           unzip -oq dl/a.zip -d dl/unzipped
 
@@ -75,21 +105,16 @@ jobs:
         run: |
           mkdir -p "${{ steps.date.outputs.OUT }}"
           CSV=$(ls -1 dl/unzipped/**/sigma_dynamics.csv 2>/dev/null | head -n1 || true)
-
-          if [ -z "$CSV" ] && [ -f "outputs/sigma_dynamics.csv" ]; then
-            CSV="outputs/sigma_dynamics.csv"
-          fi
-          if [ -z "$CSV" ] && [ -f "artifacts/sigma_dynamics.csv" ]; then
-            CSV="artifacts/sigma_dynamics.csv"
-          fi
+          # Fallbacks if needed
+          [ -z "$CSV" ] && [ -f "outputs/sigma_dynamics.csv" ] && CSV="outputs/sigma_dynamics.csv"
+          [ -z "$CSV" ] && [ -f "artifacts/sigma_dynamics.csv" ] && CSV="artifacts/sigma_dynamics.csv"
 
           if [ -z "$CSV" ]; then
-            echo "::error::sigma_dynamics.csv introuvable. Relance avec 'artifact_url' en workflow_dispatch."
+            echo "::error::sigma_dynamics.csv introuvable. Assure-toi que le workflow Dynamics a bien uploadé 'outputs/'."
             exit 1
           fi
-
-          echo "CSV_PATH=$CSV" >> $GITHUB_OUTPUT
-          echo "Found CSV: $CSV"
+          echo "CSV_PATH=$CSV" >> "$GITHUB_OUTPUT"
+          echo "Found: $CSV"
 
       - name: Run analysis
         run: |
