@@ -56,16 +56,13 @@ jobs:
           owner="${GITHUB_REPOSITORY%/*}"
           repo="${GITHUB_REPOSITORY#*/}"
 
-          echo "Fetch artifacts list"
           curl -sSfL \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$owner/$repo/actions/artifacts?per_page=50" \
             -o list.json
 
-          echo "Pick latest non-expired sigma-dynamics-*"
-          url=$(python3 -c 'import json,sys; d=json.load(open("list.json")); a=[x for x in d.get("artifacts",[]) if (not x.get("expired")) and x.get("name","").startswith("sigma-dynamics-")]; a.sort(key=lambda x: x.get("created_at",""), reverse=True); print(a[0]["archive_download_url"] if a else "")')
-
+          url=$(python3 -c 'import json; d=json.load(open("list.json")); a=[x for x in d.get("artifacts",[]) if (not x.get("expired")) and x.get("name","").startswith("sigma-dynamics-")]; a.sort(key=lambda x: x.get("created_at",""), reverse=True); print(a[0]["archive_download_url"] if a else "")')
           if [ -z "$url" ]; then
             echo "::error::Aucun artefact sigma-dynamics-* valide trouvé. Lance d’abord le workflow Dynamics."
             exit 1
@@ -80,7 +77,6 @@ jobs:
           set -e
           url="${{ steps.src.outputs.URL || steps.auto.outputs.URL }}"
           mkdir -p dl
-          echo "Téléchargement: $url"
           curl -sSfL -H "Authorization: Bearer $GH_TOKEN" -o dl/a.zip "$url"
           unzip -oq dl/a.zip -d dl/unzipped
           echo "ZIP_DIR=dl/unzipped" >> "$GITHUB_OUTPUT"
@@ -102,9 +98,21 @@ jobs:
           MPLBACKEND: Agg
         run: |
           set -e
-          python sigma_analysis.py \
-            --csv "${{ steps.csv.outputs.CSV }}" \
-            --out-dir "${{ steps.date.outputs.OUT }}"
+          # 1) Lancer l’analyse SANS --out-dir (non supporté par le script)
+          python sigma_analysis.py --csv "${{ steps.csv.outputs.CSV }}"
+
+          # 2) Rassembler les résultats générés où qu’ils soient
+          mkdir -p "${{ steps.date.outputs.OUT }}"
+          # Déplacer ce que le script a pu produire (adapter si besoin)
+          for d in outputs out artifacts results .; do
+            if [ -d "$d" ]; then
+              find "$d" -maxdepth 1 -type f -print0 | xargs -0 -I{} cp -f "{}" "${{ steps.date.outputs.OUT }}/" || true
+              find "$d" -maxdepth 1 -type f -name "*.png" -print0 | xargs -0 -I{} cp -f "{}" "${{ steps.date.outputs.OUT }}/" || true
+              find "$d" -maxdepth 1 -type f -name "*.csv" -print0 | xargs -0 -I{} cp -f "{}" "${{ steps.date.outputs.OUT }}/" || true
+              find "$d" -maxdepth 1 -type f -name "*.html" -print0 | xargs -0 -I{} cp -f "{}" "${{ steps.date.outputs.OUT }}/" || true
+            fi
+          done
+
           ls -lah "${{ steps.date.outputs.OUT }}"
 
       - name: Upload analysis artifacts
