@@ -58,6 +58,7 @@ jobs:
           json=$(curl -sSfL -H "Authorization: Bearer $GH_TOKEN" \
                 -H "Accept: application/vnd.github+json" \
                 "https://api.github.com/repos/$owner/$repo/actions/artifacts?per_page=50")
+
           url=$(python3 - <<'PYCODE'
 import sys, json
 data=json.load(sys.stdin)
