@@ -1,15 +1,12 @@
 name: Export Sigma Visual
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch: {}          # lancement manuel
   push:
-    paths:
-      - "app/visuals/**"
-      - "scripts/capture_visual.js"
-      - ".github/workflows/export-visual.yml"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "yarn.lock"
+    branches: [ main ]           # déclenche à chaque commit sur main
+
+permissions:
+  contents: write                # nécessaire pour committer l'image générée
 
 jobs:
   build-and-capture:
@@ -22,27 +19,30 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"  # pas de cache => pas besoin de lock file
+          node-version: "20"
 
       - name: Install deps
         run: |
           npm install
-          # Sécurité : si puppeteer/wait-on ne sont pas dans le package.json, on les ajoute pour la CI
+          # Sécurités au cas où ces paquets ne seraient pas listés
           npm ls puppeteer >/dev/null 2>&1 || npm i -D puppeteer
           npm ls wait-on  >/dev/null 2>&1 || npm i -D wait-on
 
-      - name: Build
+      - name: Build (Vite)
         run: npm run build
 
-      - name: Start Next (background)
+      - name: Preview (background, Vite 4173)
         run: |
-          npm run start -- -p 3000 &
-          npx wait-on http://localhost:3000
+          npm run start -- --port 4173 &
+          npx wait-on http://localhost:4173
 
       - name: Capture PNG with Puppeteer
         run: node scripts/capture_visual.js
         env:
-          CAPTURE_URL: http://localhost:3000/visuals
+          CAPTURE_URL: http://localhost:4173
+
+      - name: Ensure docs/img exists
+        run: mkdir -p docs/img
 
       - name: Commit image
         uses: EndBug/add-and-commit@v9
