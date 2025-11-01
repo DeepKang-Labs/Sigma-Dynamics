@@ -1,0 +1,66 @@
+name: Sigma-Collect (Daily Data Harvest)
+
+on:
+  schedule:
+    - cron: "0 3 * * *"  # tous les jours 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write   # pour publier une Release
+
+concurrency:
+  group: sigma-collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pandas
+
+      - name: Compute OUT dir
+        id: date
+        run: |
+          DATE=$(date -u +'%Y-%m-%d')
+          echo "DATE=$DATE" >> "$GITHUB_OUTPUT"
+          echo "OUT=data/$DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Run Sigma-Collect
+        env:
+          OUT_DIR: ${{ steps.date.outputs.OUT }}
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}  # optionnel
+        run: |
+          mkdir -p "$OUT_DIR"
+          python sigma_collect.py --out "$OUT_DIR"
+
+      - name: Upload raw files as artifact (uncompressed tree)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sigma-collect-${{ steps.date.outputs.DATE }}
+          path: ${{ steps.date.outputs.OUT }}/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create GitHub Release with files attached
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sigma-collect-${{ steps.date.outputs.DATE }}
+          name: Sigma Collect ${{ steps.date.outputs.DATE }}
+          draft: false
+          prerelease: false
+          files: |
+            ${{ steps.date.outputs.OUT }}/**/*
