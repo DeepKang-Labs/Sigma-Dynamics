@@ -1,0 +1,46 @@
+name: Export Sigma Visual
+
+on:
+  workflow_dispatch: {}
+  push:
+    paths:
+      - "app/visuals/**"
+      - "package.json"
+      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "yarn.lock"
+
+jobs:
+  build-and-capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Start Next (background)
+        run: |
+          npm run start -- -p 3000 &
+          npx wait-on http://localhost:3000
+
+      - name: Capture PNG with Puppeteer
+        run: node scripts/capture_visual.js
+
+      - name: Commit image
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: "docs/img/sigma_influence_flow.png"
+          message: "chore(visuals): export README visual (Sigma Influence Flow)"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
