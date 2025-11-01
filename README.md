@@ -5,7 +5,6 @@
 > θ → C → M → θ
 
 ---
-
 ## Boucle d’influence Sigma
 
 ![Boucle d’influence Sigma](docs/img/sigma_influence_flow.png)
