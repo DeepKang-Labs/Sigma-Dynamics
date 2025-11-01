@@ -56,32 +56,28 @@ jobs:
           owner="${GITHUB_REPOSITORY%/*}"
           repo="${GITHUB_REPOSITORY#*/}"
 
-          echo "Recherche des 50 derniers artefacts…"
+          echo "Recherche des 50 derniers artefacts..."
           curl -sSfL \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$owner/$repo/actions/artifacts?per_page=50" \
             -o list.json
 
-          url=$(python3 - <<'PYCODE'
+          echo "Analyse JSON via Python..."
+          python3 <<'PYCODE'
 import json, sys
-with open('list.json','r', encoding='utf-8') as f:
+with open("list.json","r",encoding="utf-8") as f:
     data = json.load(f)
-
 arts = [a for a in data.get("artifacts", [])
         if not a.get("expired")
         and a.get("name","").startswith("sigma-dynamics-")]
 arts.sort(key=lambda a: a.get("created_at",""), reverse=True)
-print(arts[0]["archive_download_url"] if arts else "")
+if not arts:
+    print("::error::Aucun artefact 'sigma-dynamics-' valide trouvé. Lance d'abord le workflow Dynamics.")
+    sys.exit(1)
+print(f"URL={arts[0]['archive_download_url']}")
 PYCODE
-)
-
-          if [ -z "$url" ]; then
-            echo "::error::Aucun artefact 'sigma-dynamics-' valide trouvé. Lance d'abord le workflow Dynamics."
-            exit 1
-          fi
-
-          echo "URL=$url" >> "$GITHUB_OUTPUT"
+          >> "$GITHUB_OUTPUT"
 
       - name: Download artifact zip
         id: dl
