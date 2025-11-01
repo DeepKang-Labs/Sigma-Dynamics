@@ -1,12 +1,10 @@
 name: Run Sigma-Analysis
 
 on:
-  # 1) Auto après le workflow de dynamique
   workflow_run:
     workflows: ["Run Sigma-Dynamics (REAL)"]
     types: [completed]
 
-  # 2) Lancement manuel optionnel (si tu veux analyser un run précis)
   workflow_dispatch:
     inputs:
       artifact_url:
@@ -55,21 +53,25 @@ jobs:
                -H "Accept: application/vnd.github+json" \
                "${{ steps.src.outputs.URL }}" > dl/list.json
 
-          ZIP_URL=$(python - <<'PY'
-import json
-j=json.load(open('dl/list.json'))
-for a in j.get('artifacts', []):
-    if not a.get('expired', False):
-        print(a['archive_download_url'])
-        break
-PY
+          # Extract ZIP URL from JSON using Python inline
+          ZIP_URL=$(python3 - <<'PYCODE'
+import json, sys
+data=json.load(open("dl/list.json"))
+for a in data.get("artifacts", []):
+    if not a.get("expired", False):
+        print(a["archive_download_url"])
+        sys.exit(0)
+sys.exit(1)
+PYCODE
 )
+
           if [ -z "$ZIP_URL" ]; then
             echo "::error::Aucun artefact disponible/valide sur le run source."
             cat dl/list.json
             exit 1
           fi
 
+          echo "Téléchargement de l'artefact: $ZIP_URL"
           curl -sSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
                -o dl/a.zip "$ZIP_URL"
           mkdir -p dl/unzipped
@@ -81,7 +83,6 @@ PY
           mkdir -p "${{ steps.date.outputs.OUT }}"
           CSV=$(ls -1 dl/unzipped/**/sigma_dynamics.csv 2>/dev/null | head -n1 || true)
 
-          # Fallbacks si on lance localement ou si l'artefact a été commité
           if [ -z "$CSV" ] && [ -f "outputs/sigma_dynamics.csv" ]; then
             CSV="outputs/sigma_dynamics.csv"
           fi
@@ -93,8 +94,9 @@ PY
             echo "::error::sigma_dynamics.csv introuvable. Relance avec 'artifact_url' en workflow_dispatch."
             exit 1
           fi
+
           echo "CSV_PATH=$CSV" >> $GITHUB_OUTPUT
-          echo "Found CSV at: $CSV"
+          echo "Found CSV: $CSV"
 
       - name: Run analysis
         run: |
