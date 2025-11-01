@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       artifact_url:
-        description: "URL API de l'artefact Dynamics à analyser (optionnel)"
+        description: "URL API de l'artefact 'sigma-dynamics-*' à analyser (optionnel)"
         required: false
         default: ""
 
@@ -56,28 +56,32 @@ jobs:
           owner="${GITHUB_REPOSITORY%/*}"
           repo="${GITHUB_REPOSITORY#*/}"
 
-          echo "Recherche des 50 derniers artefacts..."
+          echo "Fetch artifacts list…"
           curl -sSfL \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$owner/$repo/actions/artifacts?per_page=50" \
             -o list.json
 
-          echo "Analyse JSON via Python..."
-          python3 - <<'PYCODE'
+          echo "Pick latest non-expired 'sigma-dynamics-*'…"
+          url=$(python3 - <<'PY'
 import json, sys
 with open("list.json","r",encoding="utf-8") as f:
-    data=json.load(f)
-arts=[a for a in data.get("artifacts",[])
-      if not a.get("expired")
-      and a.get("name","").startswith("sigma-dynamics-")]
+    data = json.load(f)
+arts = [a for a in data.get("artifacts", [])
+        if (not a.get("expired")) and a.get("name","").startswith("sigma-dynamics-")]
 arts.sort(key=lambda a: a.get("created_at",""), reverse=True)
 if not arts:
-    print("::error::Aucun artefact 'sigma-dynamics-' valide trouvé. Lance d'abord le workflow Dynamics.")
-    sys.exit(1)
-print(f"URL={arts[0]['archive_download_url']}")
-PYCODE
-          >> "$GITHUB_OUTPUT"
+    print("")  # empty -> handled in bash
+else:
+    print(arts[0]["archive_download_url"])
+PY
+)
+          if [ -z "$url" ]; then
+            echo "::error::Aucun artefact 'sigma-dynamics-' valide trouvé. Lance d'abord le workflow Dynamics."
+            exit 1
+          fi
+          echo "URL=$url" >> "$GITHUB_OUTPUT"
 
       - name: Download artifact zip
         id: dl
@@ -87,7 +91,7 @@ PYCODE
           set -e
           url="${{ steps.src.outputs.URL || steps.auto.outputs.URL }}"
           mkdir -p dl
-          echo "Téléchargement de l’artefact : $url"
+          echo "Téléchargement : $url"
           curl -sSfL -H "Authorization: Bearer $GH_TOKEN" -o dl/a.zip "$url"
           unzip -oq dl/a.zip -d dl/unzipped
           echo "ZIP_DIR=dl/unzipped" >> "$GITHUB_OUTPUT"
@@ -99,7 +103,7 @@ PYCODE
           mkdir -p "${{ steps.date.outputs.OUT }}"
           CSV=$(find "${{ steps.dl.outputs.ZIP_DIR }}" -type f -name "sigma_dynamics.csv" | head -n1 || true)
           if [ -z "$CSV" ]; then
-            echo "::error::sigma_dynamics.csv introuvable. Assure-toi que le workflow Dynamics a bien uploadé 'sigma_dynamics.csv' dans l’artefact."
+            echo "::error::sigma_dynamics.csv introuvable dans l’artefact. Assure-toi que le workflow Dynamics a bien uploadé 'outputs/sigma_dynamics.csv'."
             exit 1
           fi
           echo "CSV=$CSV" >> "$GITHUB_OUTPUT"
@@ -109,11 +113,9 @@ PYCODE
           MPLBACKEND: Agg
         run: |
           set -e
-          mkdir -p "${{ steps.date.outputs.OUT }}"
           python sigma_analysis.py \
             --csv "${{ steps.csv.outputs.CSV }}" \
             --out-dir "${{ steps.date.outputs.OUT }}"
-          echo "Contenu du dossier de sortie :"
           ls -lah "${{ steps.date.outputs.OUT }}"
 
       - name: Upload analysis artifacts
