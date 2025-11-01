@@ -1,42 +1,109 @@
 name: Run Sigma-Analysis
 
 on:
+  # 1) Auto après le workflow de dynamique
+  workflow_run:
+    workflows: ["Run Sigma-Dynamics (REAL)"]
+    types: [completed]
+
+  # 2) Lancement manuel optionnel (si tu veux analyser un run précis)
   workflow_dispatch:
-  push:
-    paths:
-      - 'sigma_dynamics.csv'
-      - 'artifacts/sigma_dynamics.csv'
-      - 'data/sigma_dynamics.csv'
-      - 'sigma_analysis.py'
-      - '.github/workflows/run-sigma-analysis.yml'
+    inputs:
+      artifact_url:
+        description: "URL API artifacts d'un run Dynamics (optionnel)"
+        required: false
+        default: ""
 
 jobs:
   analyze:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.12"
 
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pandas numpy matplotlib
+          pip install pandas matplotlib requests
 
-      - name: Run analysis (auto-discover CSV)
+      - name: Compute OUT dir
+        id: date
+        run: echo "OUT=artifacts/$(date -u +%F)" >> $GITHUB_OUTPUT
+
+      - name: Determine artifacts URL
+        id: src
         run: |
-          python sigma_analysis.py
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "URL=${{ github.event.workflow_run.artifacts_url }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ github.event.inputs.artifact_url }}" ]; then
+            echo "URL=${{ github.event.inputs.artifact_url }}" >> $GITHUB_OUTPUT
+          else
+            echo "URL=" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Upload artifacts
+      - name: Download artifact from triggering run
+        if: steps.src.outputs.URL != ''
+        run: |
+          mkdir -p dl
+          curl -sSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+               -H "Accept: application/vnd.github+json" \
+               "${{ steps.src.outputs.URL }}" > dl/list.json
+
+          ZIP_URL=$(python - <<'PY'
+import json
+j=json.load(open('dl/list.json'))
+for a in j.get('artifacts', []):
+    if not a.get('expired', False):
+        print(a['archive_download_url'])
+        break
+PY
+)
+          if [ -z "$ZIP_URL" ]; then
+            echo "::error::Aucun artefact disponible/valide sur le run source."
+            cat dl/list.json
+            exit 1
+          fi
+
+          curl -sSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+               -o dl/a.zip "$ZIP_URL"
+          mkdir -p dl/unzipped
+          unzip -oq dl/a.zip -d dl/unzipped
+
+      - name: Locate sigma_dynamics.csv
+        id: csv
+        run: |
+          mkdir -p "${{ steps.date.outputs.OUT }}"
+          CSV=$(ls -1 dl/unzipped/**/sigma_dynamics.csv 2>/dev/null | head -n1 || true)
+
+          # Fallbacks si on lance localement ou si l'artefact a été commité
+          if [ -z "$CSV" ] && [ -f "outputs/sigma_dynamics.csv" ]; then
+            CSV="outputs/sigma_dynamics.csv"
+          fi
+          if [ -z "$CSV" ] && [ -f "artifacts/sigma_dynamics.csv" ]; then
+            CSV="artifacts/sigma_dynamics.csv"
+          fi
+
+          if [ -z "$CSV" ]; then
+            echo "::error::sigma_dynamics.csv introuvable. Relance avec 'artifact_url' en workflow_dispatch."
+            exit 1
+          fi
+          echo "CSV_PATH=$CSV" >> $GITHUB_OUTPUT
+          echo "Found CSV at: $CSV"
+
+      - name: Run analysis
+        run: |
+          python sigma_analysis.py \
+            --csv "${{ steps.csv.outputs.CSV_PATH }}" \
+            --out-dir "${{ steps.date.outputs.OUT }}"
+
+      - name: Upload analysis artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sigma-analysis-artifacts
-          path: |
-            artifacts/**
-            reports/**
-          if-no-files-found: warn
+          name: sigma-analysis-${{ github.run_id }}
+          path: ${{ steps.date.outputs.OUT }}
