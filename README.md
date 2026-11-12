@@ -1,81 +1,43 @@
-# 🧠 Sigma-Dynamics (v0.1)
+# Sigma-Dynamics — experimental simulation (v0.1)
 
-> Experimental simulation engine for the **Sigma-Lab Framework**, developed by **DeepKang-Labs**.  
-> Models adaptive moral coherence through the canonical loop:  
-> θ → C → M → θ
+**DeepKang-Labs** · Research software associated with [Sigma-Lab Framework](https://github.com/DeepKang-Labs/Sigma-Lab-Framework)
 
----
-## Boucle d’influence Sigma
+> **Scope:** an experimental, inspectable simulation of adaptive diagnostic scores. It is **not** an empirically validated model of human morality, a production ethical decision-maker, or a verified live bridge to another network.
 
-![Boucle d’influence Sigma](docs/img/sigma_influence_flow.png)
+## Research model
 
-> Visuel auto-généré par `.github/workflows/export-visual.yml`.
+The historical research label is *Theory of Algorithmic Moral Relativity*. Here it names a **proposed model**, not a demonstrated physical or moral law.
 
-## ⚛️ Concept
+The simulation describes the illustrative loop `θ → C → M → θ`:
 
-Sigma-Dynamics implements the **Theory of Algorithmic Moral Relativity**,  
-a system where ethics evolves dynamically under semantic and contextual pressure.
+```text
+theta_i(t) = f_i(E_t, M_(t-1))
+M_t        = sum_k w_k * C_k
+C_mean(t)  = (1/n) * sum_k C_k
+```
 
-### Canonical Equations
+These expressions specify a modeling approach; they do not establish predictive accuracy or ethical validity.
 
-\[
-\theta_i(t) = f_i(E_t, M_{t-1})
-\]
-\[
-M_t = \sum_{k=1}^{n} w_k \cdot C_k
-\]
-\[
-\overline{C}_t = \frac{1}{n}\sum_{k=1}^{n} C_k
-\]
+## Run locally
 
----
-
-## ⚙️ Installation & Execution
+Requirements: Python 3, NumPy, pandas, matplotlib and requests (see [requirements.txt](requirements.txt)).
 
 ```bash
-pip install -r requirements.txt
-python sigma_dynamics.py
+python -m pip install -r requirements.txt
+python sigma_dynamics.py --symbol BTC --lookback-days 365 --out-dir outputs --bridge-every 50
+```
 
-Artifacts (CSV + Plots) will be generated under:
+Inspect generated CSVs and plots in `outputs/` (or the path selected with `--out-dir`). The script tries to retrieve public market input; when unavailable it may **fall back to synthetic data**. Do not describe a successful run as proof of live data ingestion without checking the actual input provenance in its artifacts and logs.
 
-/sigma_dynamics_artifacts_YYYYMMDD-HHMMSS/
+## Reproducibility and evidence limits
 
+- [Executable source](sigma_dynamics.py) is the implementation to inspect; this README is not a scientific proof.
+- [Scheduled workflow](.github/workflows/run-sigma-dynamics.yml) runs analysis and uploads artifacts for its configured retention period. A green job means the configured steps succeeded, **not** that a real-data bridge or external scientific validation occurred.
+- Outputs are exploratory diagnostic traces. Compare against held-out real-world data and independent baselines before making generalization claims.
+- Previous versions referenced an image under `docs/img/` and an `export-visual.yml` workflow; those files were not present on the default branch during the 12 November 2026 documentation review. No generated visualization is claimed here.
 
----
+## Provenance
 
-🧩 Output Examples
+Research direction: Yuri Kang / DeepKang-Labs. AI assistants contributed to historical research and development workflows as tools. Their participation does not substitute for independent review.
 
-coherence_over_time.png
-
-theta_non_harm_over_time.png
-
-veto_over_time.png
-
-log.csv (complete record of simulation steps)
-
-
-
----
-
-🌐 Project Context
-
-Sigma-Dynamics is part of the larger Sigma-Lab Framework ecosystem:
-
-Sigma-Lab-Framework → Theoretical & Mathematical Core
-
-Sigma-Dynamics → Simulation & Validation Engine
-
-
-
----
-
-🧑‍💻 Contributors
-
-Yuri Kang — Architect of the Axiom-to-Code Paradigm
-
-IA Kang — Design & Engineering Logic
-
-DeepSeek, Gemini — Theoretical & Review Partners
-
-
-© 2025 DeepKang-Labs · Axiom to Code
+See the [Sigma-Lab Framework](https://github.com/DeepKang-Labs/Sigma-Lab-Framework) for surrounding research context.
